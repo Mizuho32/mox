@@ -1962,6 +1962,7 @@ func (Webmail) RulesetSuggestMove(ctx context.Context, msgID, mbSrcID, mbDstID i
 			xrs := config.Ruleset{
 				MsgFromRegexp:   rs.MsgFromRegexp,
 				HeadersRegexp:   rs.HeadersRegexp,
+				BodyRegexps:     rs.BodyRegexps,
 				ListAllowDomain: rs.ListAllowDomain,
 				Mailbox:         nrs.Mailbox,
 			}

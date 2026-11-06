@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/mjl-/mox/autotls"
@@ -512,6 +513,7 @@ type Ruleset struct {
 	MsgFromRegexp      string            `sconf:"optional" sconf-doc:"Matches if this regular expression matches (a substring of) the single address in the message From header."`
 	VerifiedDomain     string            `sconf:"optional" sconf-doc:"Matches if this domain matches an SPF- and/or DKIM-verified (sub)domain."`
 	HeadersRegexp      map[string]string `sconf:"optional" sconf-doc:"Matches if these header field/value regular expressions all match (substrings of) the message headers. Header fields and valuees are converted to lower case before matching. Whitespace is trimmed from the value before matching. A header field can occur multiple times in a message, only one instance has to match. For mailing lists, you could match on ^list-id$ with the value typically the mailing list address in angled brackets with @ replaced with a dot, e.g. <name\\.lists\\.example\\.org>."`
+	BodyRegexps        []string          `sconf:"optional" sconf-doc:"Matches if all of these regular expressions match (a substring of) the message body. Text parts, including text attachments and parts of embedded messages, are checked after decoding the content-transfer-encoding and charset. HTML is not parsed. The regular expressions can match in different parts. Matching is case-sensitive, use (?i) for case-insensitive matching. The regular expressions match on multiple lines of text, but \".\" doesn't match a newline by default."`
 	// todo: add a SMTPRcptTo check
 
 	// todo: once we implement ARC, we can use dkim domains that we cannot verify but that the arc-verified forwarding mail server was able to verify.
@@ -526,6 +528,7 @@ type Ruleset struct {
 	MsgFromRegexpCompiled      *regexp.Regexp      `sconf:"-" json:"-"`
 	VerifiedDNSDomain          dns.Domain          `sconf:"-"`
 	HeadersRegexpCompiled      [][2]*regexp.Regexp `sconf:"-" json:"-"`
+	BodyRegexpsCompiled        []*regexp.Regexp    `sconf:"-" json:"-"`
 	ListAllowDNSDomain         dns.Domain          `sconf:"-"`
 }
 
@@ -535,6 +538,9 @@ func (r Ruleset) Equal(o Ruleset) bool {
 		return false
 	}
 	if !reflect.DeepEqual(r.HeadersRegexp, o.HeadersRegexp) {
+		return false
+	}
+	if !slices.Equal(r.BodyRegexps, o.BodyRegexps) {
 		return false
 	}
 	return true

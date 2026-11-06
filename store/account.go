@@ -22,6 +22,7 @@ package store
 // todo: make up a function naming scheme that indicates whether caller should broadcast changes.
 
 import (
+	"bufio"
 	"context"
 	"crypto/md5"
 	cryptorand "crypto/rand"
@@ -38,6 +39,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -2851,9 +2853,9 @@ func MessageRuleset(log mlog.Log, dest config.Destination, m *Message, msgPrefix
 	}
 
 	mr := FileMsgReader(msgPrefix, msgFile) // We don't close, it would close the msgFile.
-	p, err := message.Parse(log.Logger, false, mr)
-	if err != nil {
-		log.Errorx("parsing message for evaluating rulesets, continuing with headers", err, slog.String("parse", ""))
+	p, parseErr := message.Parse(log.Logger, false, mr)
+	if parseErr != nil {
+		log.Errorx("parsing message for evaluating rulesets, continuing with headers", parseErr, slog.String("parse", ""))
 		// note: part is still set.
 	}
 	// todo optimize: only parse header if needed for rulesets. and probably reuse an earlier parsing.
@@ -2863,6 +2865,9 @@ func MessageRuleset(log mlog.Log, dest config.Destination, m *Message, msgPrefix
 		// todo: reject message?
 		return nil
 	}
+
+	// Sub parts are only parsed when we evaluate a ruleset that looks at the body.
+	var walked, walkOK bool
 
 ruleset:
 	for _, rs := range dest.Rulesets {
@@ -2914,9 +2919,58 @@ ruleset:
 			}
 			continue ruleset
 		}
+
+		if len(rs.BodyRegexpsCompiled) > 0 {
+			if !walked {
+				walked = true
+				if parseErr == nil {
+					if err := p.Walk(log.Logger, nil); err != nil {
+						log.Errorx("parsing message parts for evaluating rulesets, not matching body regexps", err)
+					} else {
+						walkOK = true
+					}
+				}
+			}
+			if !walkOK {
+				continue ruleset
+			}
+			for _, re := range rs.BodyRegexpsCompiled {
+				ok, err := partBodyMatch(&p, re)
+				if err != nil {
+					log.Errorx("matching body regexp for evaluating rulesets", err)
+				}
+				if err != nil || !ok {
+					continue ruleset
+				}
+			}
+		}
 		return &rs
 	}
 	return nil
+}
+
+// partBodyMatch returns whether re matches a text part in p or in its sub parts,
+// after decoding the content-transfer-encoding and charset.
+func partBodyMatch(p *message.Part, re *regexp.Regexp) (bool, error) {
+	if len(p.Parts) == 0 {
+		// MediaType is empty if there is no content-type, which means text/plain.
+		if p.MediaType != "TEXT" && p.MediaType != "" {
+			return false, nil
+		}
+		return re.MatchReader(bufio.NewReader(p.ReaderUTF8OrBinary())), nil
+	}
+	for _, pp := range p.Parts {
+		if pp.Message != nil {
+			if err := pp.SetMessageReaderAt(); err != nil {
+				return false, err
+			}
+			pp = *pp.Message
+		}
+		if ok, err := partBodyMatch(&pp, re); ok || err != nil {
+			return ok, err
+		}
+	}
+	return false, nil
 }
 
 // MessagePath returns the file system path of a message.

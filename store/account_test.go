@@ -360,34 +360,71 @@ test
 	// todo: test the SMTPMailFrom and VerifiedDomains rule.
 }
 
-func TestMessageRulesetDecodedHeader(t *testing.T) {
+func TestMessageRulesetDecoded(t *testing.T) {
 	log := mlog.New("store", nil)
 	f, err := CreateMessageTemp(log, "msgruleset")
 	tcheck(t, err, "creating temp msg file")
 	defer CloseRemoveTempFile(log, f, "temp message file")
 
-	jisB64 := func(s string) string {
+	jisEnc := func(s string) string {
 		t.Helper()
 		r, err := japanese.ISO2022JP.NewEncoder().String(s)
 		tcheck(t, err, "encoding iso-2022-jp")
-		return base64.StdEncoding.EncodeToString([]byte(r))
+		return r
 	}
-	msg := "From: <mjl@mox.example>\nSubject: =?ISO-2022-JP?B?" + jisB64("楽天") + "?=\n =?ISO-2022-JP?B?" + jisB64("市場") + "?= Sale\n\ntest\n"
+	jisB64 := func(s string) string {
+		return base64.StdEncoding.EncodeToString([]byte(jisEnc(s)))
+	}
+	utf8B64 := base64.StdEncoding.EncodeToString([]byte("ふるさと納税"))
+
+	headersOnly := "From: <mjl@mox.example>\nSubject: =?ISO-2022-JP?B?" + jisB64("楽天") + "?=\n =?ISO-2022-JP?B?" + jisB64("市場") + "?= Sale\n\ntest\n"
+	plainUTF8 := "Subject: x\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n\n" + utf8B64 + "\n"
+	noContentType := "Subject: x\n\nふるさと納税\n"
+	alternative := "Subject: x\nMIME-Version: 1.0\nContent-Type: multipart/alternative; boundary=\"b\"\n\n--b\nContent-Type: text/plain; charset=\"iso-2022-jp\"\nContent-Transfer-Encoding: base64\n\n" + jisB64("ふるさと納税") + "\n--b\nContent-Type: text/html; charset=utf-8\nContent-Transfer-Encoding: base64\n\n" + base64.StdEncoding.EncodeToString([]byte("<b>お知らせ</b>")) + "\n--b--\n"
+	signed := "Subject: x\nMIME-Version: 1.0\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; micalg=sha-256;\n\tboundary=\"s\"\n\n--s\nContent-Type: text/plain; charset=\"iso-2022-jp\"\nContent-Transfer-Encoding: 7bit\n\n" + jisEnc("ふるさと納税") + "\n--s\nContent-Type: application/pkcs7-signature; name=smime.p7s\nContent-Transfer-Encoding: base64\n\nAAAA\n--s--\n"
+	attachment := "Subject: x\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"m\"\n\n--m\nContent-Type: text/plain; charset=utf-8\n\nhello\n--m\nContent-Type: application/octet-stream\n\nふるさと納税\n--m--\n"
+	embedded := "Subject: x\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"m\"\n\n--m\nContent-Type: message/rfc822\n\nSubject: y\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n\n" + utf8B64 + "\n--m--\n"
+	bodyHeader := "Body: ふるさと納税\nSubject: x\n\ntest\n"
+	invalid := "Subject: x\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"m\"\n\n--m\nContent-Type: text/plain; charset=utf-8\n\nふるさと納税\n"
 
 	testCases := []struct {
-		name   string
-		regexp string
-		match  bool
+		name    string
+		msg     string
+		headers map[string]string
+		body    []string
+		match   bool
 	}{
-		{"split encoded-words", "楽天市場 sale", true},
-		{"no match", "ヤフー", false},
+		{"header split encoded-words", headersOnly, map[string]string{"^subject$": "楽天市場 sale"}, nil, true},
+		{"header no match", headersOnly, map[string]string{"^subject$": "ヤフー"}, nil, false},
+		{"body not matched in headers", headersOnly, nil, []string{"楽天"}, false},
+		{"body base64 utf-8", plainUTF8, nil, []string{"ふるさと納税"}, true},
+		{"body without content-type", noContentType, nil, []string{"ふるさと納税"}, true},
+		{"body iso-2022-jp in alternative", alternative, nil, []string{"ふるさと納税"}, true},
+		{"body in html part", alternative, nil, []string{"お知らせ"}, true},
+		{"all body regexps, different parts", alternative, nil, []string{"ふるさと", "お知らせ"}, true},
+		{"all body regexps must match", alternative, nil, []string{"ふるさと", "ヤフー"}, false},
+		{"body iso-2022-jp 7bit in signed", signed, nil, []string{"ふるさと納税"}, true},
+		{"body regexp", plainUTF8, nil, []string{"^ふる.*納税$"}, true},
+		{"body not in binary attachment", attachment, nil, []string{"ふるさと納税"}, false},
+		{"body in embedded message", embedded, nil, []string{"ふるさと納税"}, true},
+		{"header and body both match", alternative, map[string]string{"^subject$": "^x$"}, []string{"ふるさと"}, true},
+		{"header no match, body match", alternative, map[string]string{"^subject$": "^z$"}, []string{"ふるさと"}, false},
+		{"header named body is a regular header", bodyHeader, map[string]string{"^body$": "ふるさと納税"}, nil, true},
+		{"header named body does not match body", plainUTF8, map[string]string{"^body$": "ふるさと納税"}, nil, false},
+		{"body with invalid mime structure", invalid, nil, []string{"ふるさと納税"}, false},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			rs := config.Ruleset{Mailbox: "test"}
-			rs.HeadersRegexpCompiled = [][2]*regexp.Regexp{{regexp.MustCompile("^subject$"), regexp.MustCompile(tc.regexp)}}
+			for k, v := range tc.headers {
+				rs.HeadersRegexpCompiled = append(rs.HeadersRegexpCompiled, [...]*regexp.Regexp{regexp.MustCompile(k), regexp.MustCompile(v)})
+			}
+			for _, v := range tc.body {
+				rs.BodyRegexpsCompiled = append(rs.BodyRegexpsCompiled, regexp.MustCompile(v))
+			}
+			msg := []byte(strings.ReplaceAll(tc.msg, "\n", "\r\n"))
 			dest := config.Destination{Rulesets: []config.Ruleset{rs}}
-			c := MessageRuleset(log, dest, &Message{}, []byte(strings.ReplaceAll(msg, "\n", "\r\n")), f)
+			c := MessageRuleset(log, dest, &Message{}, msg, f)
 			if (c != nil) != tc.match {
 				t.Fatalf("got match %v, expected %v", c != nil, tc.match)
 			}
