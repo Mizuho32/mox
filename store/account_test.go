@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io/fs"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/mjl-/bstore"
 	"github.com/mjl-/sconf"
+	"golang.org/x/text/encoding/japanese"
 
 	"github.com/mjl-/mox/config"
 	"github.com/mjl-/mox/message"
@@ -356,6 +358,41 @@ test
 	}
 
 	// todo: test the SMTPMailFrom and VerifiedDomains rule.
+}
+
+func TestMessageRulesetDecodedHeader(t *testing.T) {
+	log := mlog.New("store", nil)
+	f, err := CreateMessageTemp(log, "msgruleset")
+	tcheck(t, err, "creating temp msg file")
+	defer CloseRemoveTempFile(log, f, "temp message file")
+
+	jisB64 := func(s string) string {
+		t.Helper()
+		r, err := japanese.ISO2022JP.NewEncoder().String(s)
+		tcheck(t, err, "encoding iso-2022-jp")
+		return base64.StdEncoding.EncodeToString([]byte(r))
+	}
+	msg := "From: <mjl@mox.example>\nSubject: =?ISO-2022-JP?B?" + jisB64("楽天") + "?=\n =?ISO-2022-JP?B?" + jisB64("市場") + "?= Sale\n\ntest\n"
+
+	testCases := []struct {
+		name   string
+		regexp string
+		match  bool
+	}{
+		{"split encoded-words", "楽天市場 sale", true},
+		{"no match", "ヤフー", false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := config.Ruleset{Mailbox: "test"}
+			rs.HeadersRegexpCompiled = [][2]*regexp.Regexp{{regexp.MustCompile("^subject$"), regexp.MustCompile(tc.regexp)}}
+			dest := config.Destination{Rulesets: []config.Ruleset{rs}}
+			c := MessageRuleset(log, dest, &Message{}, []byte(strings.ReplaceAll(msg, "\n", "\r\n")), f)
+			if (c != nil) != tc.match {
+				t.Fatalf("got match %v, expected %v", c != nil, tc.match)
+			}
+		})
+	}
 }
 
 // Check that opening an account forwards the Message.ID used for new additions if

@@ -2906,7 +2906,7 @@ ruleset:
 					continue
 				}
 				for _, v := range vl {
-					v = strings.ToLower(strings.TrimSpace(v))
+					v = strings.ToLower(strings.TrimSpace(message.DecodeHeaderWords(v)))
 					if t[1].MatchString(v) {
 						continue header
 					}
