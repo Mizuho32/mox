@@ -1538,7 +1538,18 @@
 			[".mobile .msgHeaderDetail", { display: "none" }],
 			[".mobile .showHeaderDetails .msgHeaderDetail", { display: "table-row" }],
 			// Popups.
-			[".mobile .composePopup", { left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%", minWidth: 0, maxWidth: "100%", borderRadius: 0, zIndex: zindexes.popup }],
+			[".mobile .composePopup", { left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%", minWidth: 0, maxWidth: "100%", borderRadius: 0, zIndex: zindexes.popup, padding: ".5em", overflowY: "auto", overflowX: "hidden" }],
+			// Keep the form within the screen, a long from address would make it wider. It
+			// scrolls vertically if it doesn't fit, with a smaller message body to prevent that.
+			[".mobile .composeForm, .mobile .composeFields", { minWidth: 0, maxWidth: "100%", flexShrink: 0 }],
+			[".mobile .composeFields > table", { tableLayout: "fixed" }],
+			[".mobile .composeFields > table td:first-child", { width: "4.75em" }],
+			[".mobile .composeFields > table td:last-child", { overflowWrap: "anywhere" }],
+			[".mobile .composeButtonsSpread", { flexWrap: "wrap", gap: ".25em" }],
+			[".mobile .composeButtonsSpread > div", { maxWidth: "100%" }],
+			[".mobile .composeButtonsSpread select", { maxWidth: "100%" }],
+			[".mobile .composeFields .autosize", { maxWidth: "100%" }],
+			[".mobile .composeFields > textarea", { flex: "1 0 8em", minHeight: "8em" }],
 			[".mobile .composeResizeGrab", { display: "none" }],
 			[".mobile .popupSettings", { minWidth: 0 }],
 			[".mobile .searchContent", { left: 0, right: 0, width: "auto", maxHeight: "80dvh", overflowY: "auto", overflowX: "hidden" }],
@@ -6656,18 +6667,21 @@
 				setLocationHash();
 			}
 		});
+		let mobileEntered = false;
 		const mobileEnter = /* @__PURE__ */ __name(() => {
+			const pageLoad = !mobileEntered;
+			mobileEntered = true;
 			mobile.active = true;
 			document.body.classList.toggle("mobile", true);
-			const state = window.history.state;
-			if (state?.mobileScreen) {
-				mobileApply(state.mobileScreen);
+			const screen = window.history.state?.mobileScreen;
+			if (screen && !(pageLoad && screen === "mailboxes")) {
+				mobileApply(screen);
 				return;
 			}
 			window.history.replaceState({ mobileScreen: "mailboxes" }, "", window.location.href);
 			mobileApply("mailboxes");
 			mobile.open("msglist");
-			if (/,[0-9]+(,compose:[0-9]+)?$/.test(decodeURIComponent(window.location.hash))) {
+			if (!screen && /,[0-9]+(,compose:[0-9]+)?$/.test(decodeURIComponent(window.location.hash))) {
 				mobile.open("msg");
 			}
 		}, "mobileEnter");
