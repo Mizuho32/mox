@@ -1374,14 +1374,14 @@
 			msgheaderelem,
 			// todo: make addresses clickable, start search (keep current mailbox if any)
 			dom.tr(dom.td("From:", msgHeaderFieldStyle), dom.td(style({ width: "100%" }), dom.div(css("msgFromReceivedSpread", { display: "flex", justifyContent: "space-between" }), dom.div(join((msgenv.From || []).map((a) => formatAddressValidated(a, mi.Message, !!msgenv.From && msgenv.From.length === 1)), () => ", ")), dom.div(attr.title("Received: " + received.toString() + ";\nDate header in message: " + (msgenv.Date ? msgenv.Date.toString() : "(missing/invalid)")), receivedlocal.toDateString() + " " + receivedlocal.toTimeString().split(" ")[0])))),
-			(msgenv.ReplyTo || []).length === 0 ? [] : dom.tr(dom.td("Reply-To:", msgHeaderFieldStyle), dom.td(join((msgenv.ReplyTo || []).map((a) => formatAddressElem(a)), () => ", "))),
-			dom.tr(dom.td("To:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.To || []))),
-			(msgenv.CC || []).length === 0 ? [] : dom.tr(dom.td("Cc:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.CC || []))),
-			(msgenv.BCC || []).length === 0 ? [] : dom.tr(dom.td("Bcc:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.BCC || []))),
+			(msgenv.ReplyTo || []).length === 0 ? [] : dom.tr(dom._class("msgHeaderDetail"), dom.td("Reply-To:", msgHeaderFieldStyle), dom.td(join((msgenv.ReplyTo || []).map((a) => formatAddressElem(a)), () => ", "))),
+			dom.tr(dom._class("msgHeaderDetail"), dom.td("To:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.To || []))),
+			(msgenv.CC || []).length === 0 ? [] : dom.tr(dom._class("msgHeaderDetail"), dom.td("Cc:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.CC || []))),
+			(msgenv.BCC || []).length === 0 ? [] : dom.tr(dom._class("msgHeaderDetail"), dom.td("Bcc:", msgHeaderFieldStyle), dom.td(addressList(allAddrs, msgenv.BCC || []))),
 			dom.tr(dom.td("Subject:", msgHeaderFieldStyle), dom.td(dom.div(css("msgSubjectAttrsSpread", { display: "flex", justifyContent: "space-between" }), dom.div(msgenv.Subject || ""), dom.div(mi.Message.IsForward ? dom.span(msgAttrStyle, "Forwarded", attr.title("Message came in from a forwarded address. Some message authentication policies, like DMARC, were not evaluated.")) : [], mi.Message.IsMailingList ? dom.span(msgAttrStyle, "Mailing list", attr.title("Message was received from a mailing list. Some message authentication policies, like DMARC, were not evaluated.")) : [], mi.Message.ReceivedTLSVersion === 1 ? dom.span(msgAttrStyle, css("msgAttrNoTLS", { borderBottom: "1.5px solid", borderBottomColor: styles.underlineRed }), "Without TLS", attr.title("Message received (last hop) without TLS.")) : [], mi.Message.ReceivedTLSVersion > 1 && !mi.Message.ReceivedRequireTLS ? dom.span(msgAttrStyle, css("msgAttrTLS", { borderBottom: "1.5px solid", borderBottomColor: styles.underlineGreen }), "With TLS", attr.title("Message received (last hop) with TLS.")) : [], mi.Message.ReceivedRequireTLS ? dom.span(css("msgAttrRequireTLS", { padding: ".1em .3em", fontSize: ".9em", backgroundColor: styles.successBackground, border: "1px solid", borderColor: styles.borderColor, borderRadius: "3px" }), "With RequireTLS", attr.title("Transported with RequireTLS, ensuring TLS along the entire delivery path from sender to recipient, with TLS certificate verification through MTA-STS and/or DANE.")) : [], mi.IsSigned ? dom.span(msgAttrStyle, css("msgAttrSigned", { backgroundColor: styles.colorMild, color: styles.backgroundColorMild, borderRadius: ".15em" }), "Message has a signature") : [], mi.IsEncrypted ? dom.span(msgAttrStyle, css("msgAttrEncrypted", { backgroundColor: styles.colorMild, color: styles.backgroundColorMild, borderRadius: ".15em" }), "Message is encrypted") : [], refineKeyword ? (mi.Message.Keywords || []).map((kw) => dom.clickbutton(styleClasses.keyword, dom._class("keywordButton"), kw, /* @__PURE__ */ __name(async function click() {
 				await refineKeyword(kw);
 			}, "click"))) : [])))),
-			(mi.MoreHeaders || []).map((t) => dom.tr(dom.td(t[0] + ":", msgHeaderFieldStyle), dom.td(t[1]))),
+			(mi.MoreHeaders || []).map((t) => dom.tr(dom._class("msgHeaderDetail"), dom.td(t[0] + ":", msgHeaderFieldStyle), dom.td(t[1]))),
 			// Ensure width of all possible additional headers is taken into account, to
 			// prevent different layout between messages when not all headers are present.
 			dom.tr(dom.td(moreHeaders.map((s) => dom.div(s + ":", msgHeaderFieldStyle, style({ visibility: "hidden", height: 0 })))), dom.td())
@@ -1471,6 +1471,94 @@
 	}
 	var accountSettings;
 	var introboxMailbox = "";
+	var mobile = {
+		active: false,
+		// Functions below are set during init.
+		open: /* @__PURE__ */ __name((_screen) => {
+		}, "open"),
+		// Navigate to a screen, adding a history entry.
+		selectionEmpty: /* @__PURE__ */ __name(() => {
+		}, "selectionEmpty"),
+		// No message left to show.
+		update: /* @__PURE__ */ __name(() => {
+		}, "update")
+		// Active mailbox or search changed.
+	};
+	var mobileCSS = /* @__PURE__ */ __name(() => {
+		const hidden = { visibility: "hidden" };
+		const rules = [
+			// Prevent the page from becoming wider than the screen, causing browsers to zoom out.
+			[".mobile, .mobile .webmailRoot", { overflow: "hidden", maxWidth: "100vw" }],
+			[".mobile button, .mobile select, .mobile input", { minHeight: "2.25em" }],
+			[".mobileOnly", { display: "none" }],
+			[".mobile .mobileOnly", { display: "inline-block" }],
+			// Screens.
+			[".mobile .mailboxesBox", { width: "100%" }],
+			[".mobile .listMsgBox", { left: 0 }],
+			[".mobile .layoutMobilePane", { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }],
+			[".mobile .mailboxesListGrab, .mobile .msgListGrabs, .mobile .msgItemThreadBar", { display: "none" }],
+			[".mobile:not([data-mobile-screen=mailboxes]) .mailboxesBox", hidden],
+			[".mobile[data-mobile-screen=mailboxes] .listMsgBox", hidden],
+			[".mobile:not([data-mobile-screen=msglist]) .layoutMobileList", hidden],
+			[".mobile:not([data-mobile-screen=msg]) .layoutMobileMsg", hidden],
+			// Top bar, with back button, search and a menu.
+			[".mobile .searchbarBox", { alignItems: "center", gap: ".25em", minWidth: 0, paddingLeft: ".5em" }],
+			[".mobile .searchbarBox search", { flex: "1 1 0", minWidth: 0, marginRight: 0 }],
+			[".mobile[data-mobile-screen=msg] .searchbarBox search", { display: "none" }],
+			[".mobile[data-mobile-screen=mailboxes] .mobileBack", { display: "none" }],
+			[".mobile .mobileBack", { maxWidth: "35vw", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0 }],
+			[".mobile .mobileMenuBtn", { marginLeft: "auto", flexShrink: 0 }],
+			[".mobile .status", { position: "fixed", left: ".5em", bottom: ".5em", marginLeft: 0, maxWidth: "70vw", zIndex: zindexes.compose, backgroundColor: styles.popupBackgroundColor }],
+			[".mobile .topMenu", { display: "none", position: "fixed", top: "3.5em", right: ".5em", maxWidth: "90vw", padding: ".5em", gap: ".5em", flexDirection: "column", alignItems: "flex-start", overflowWrap: "anywhere", zIndex: zindexes.popover, backgroundColor: styles.popupBackgroundColor, boxShadow: styles.boxShadow, border: "1px solid", borderColor: styles.popupBorderColor }],
+			[".mobile.mobileMenuOpen .topMenu", { display: "flex" }],
+			[".mobile .topComposeBox", { position: "fixed", right: ".5em", bottom: ".5em", width: "auto", padding: 0, zIndex: zindexes.splitter }],
+			[".mobile[data-mobile-screen=msg] .topComposeBox", { display: "none" }],
+			// Mailboxes, no hover to reveal the collapse buttons.
+			[".mobile .mailbox", { padding: ".5em .25em" }],
+			[".mobile .mailboxesBox .pad", { paddingBottom: "4em" }],
+			// Room for compose button.
+			[".mobile .mailboxCollapse", { visibility: "visible" }],
+			// Message list, filters and sorting on a single line that scrolls.
+			[".mobile .msgListFilterSorting", { overflowX: "auto", whiteSpace: "nowrap", gap: ".5em", flexShrink: 0 }],
+			[".mobile .msgListFilterSorting > div", { flexShrink: 0 }],
+			[".mobile .refineTitle", { display: "none" }],
+			// Messages with from and age on the first line, subject on the second.
+			[".mobile .msgItem", { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", padding: ".25em 0", borderBottomColor: styles.borderColor }],
+			[".mobile .msgItem:last-child", { marginBottom: "4em" }],
+			// Room for compose button.
+			[".mobile .msgItemFlags", { gridRow: "1 / span 2", gridColumn: 1, width: "auto", minWidth: "1.25em" }],
+			[".mobile .msgItemFrom", { gridRow: 1, gridColumn: 2, width: "auto", minWidth: 0 }],
+			[".mobile .msgItemAge", { gridRow: 1, gridColumn: 3, width: "auto", whiteSpace: "nowrap" }],
+			[".mobile .msgItemSubject", { gridRow: 2, gridColumn: "2 / span 2", width: "auto", minWidth: 0 }],
+			[".mobile .msgItemFromText, .mobile .msgItemSubjectText", { textOverflow: "ellipsis", minWidth: 0 }],
+			// Message, leaving most of the screen to the body.
+			[".mobile .msgmeta", { maxHeight: "50%" }],
+			[".mobile .msgButtons > .pad, .mobile .msgMode > .pad", { overflowX: "auto", whiteSpace: "nowrap" }],
+			[".mobile .msgFromReceivedSpread, .mobile .msgSubjectAttrsSpread", { flexDirection: "column" }],
+			[".mobile .msgHeaderDetail", { display: "none" }],
+			[".mobile .showHeaderDetails .msgHeaderDetail", { display: "table-row" }],
+			// Popups.
+			[".mobile .composePopup", { left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%", minWidth: 0, maxWidth: "100%", borderRadius: 0, zIndex: zindexes.popup, padding: ".5em", overflowY: "auto", overflowX: "hidden" }],
+			// Keep the form within the screen, a long from address would make it wider. It
+			// scrolls vertically if it doesn't fit, with a smaller message body to prevent that.
+			[".mobile .composeForm, .mobile .composeFields", { minWidth: 0, maxWidth: "100%", flexShrink: 0 }],
+			[".mobile .composeFields > table", { tableLayout: "fixed" }],
+			[".mobile .composeFields > table td:first-child", { width: "4.75em" }],
+			[".mobile .composeFields > table td:last-child", { overflowWrap: "anywhere" }],
+			[".mobile .composeButtonsSpread", { flexWrap: "wrap", gap: ".25em" }],
+			[".mobile .composeButtonsSpread > div", { maxWidth: "100%" }],
+			[".mobile .composeButtonsSpread select", { maxWidth: "100%" }],
+			[".mobile .composeFields .autosize", { maxWidth: "100%" }],
+			[".mobile .composeFields > textarea", { flex: "1 0 8em", minHeight: "8em" }],
+			[".mobile .composeResizeGrab", { display: "none" }],
+			[".mobile .popupSettings", { minWidth: 0 }],
+			[".mobile .searchContent", { left: 0, right: 0, width: "auto", maxHeight: "80dvh", overflowY: "auto", overflowX: "hidden" }],
+			[".mobile .searchTable, .mobile .searchTable tbody, .mobile .searchTable tr, .mobile .searchTable td", { display: "block", width: "100%" }],
+			[".mobile .searchTable input:not([type=checkbox]):not([type=radio]), .mobile .searchTable select", { maxWidth: "100%" }],
+			[".mobile .attachmentsIframe", { margin: 0 }]
+		];
+		rules.forEach((r) => ensureCSS(r[0], r[1], true));
+	}, "mobileCSS");
 	var defaultSettings = {
 		mailboxesWidth: 240,
 		layout: "auto",
@@ -1540,7 +1628,7 @@
 				msglistageWidth: getInt("msglistageWidth"),
 				msglistfromPct: getInt("msglistfromPct"),
 				ignoreErrorsUntil: getInt("ignoreErrorsUntil"),
-				layout: getString("layout", "auto", "leftright", "topbottom"),
+				layout: getString("layout", "auto", "leftright", "topbottom", "mobile"),
 				mailboxCollapsed,
 				showAllHeaders: getBool("showAllHeaders"),
 				threading: getString("threading", ThreadMode.ThreadOff, ThreadMode.ThreadOn, ThreadMode.ThreadUnread),
@@ -1652,7 +1740,7 @@
 	var shortcutElem = dom.div(css("shortcutFlash", { fontSize: "2em", position: "absolute", left: ".25em", bottom: ".25em", backgroundColor: "#888", padding: "0.25em .5em", color: "white", borderRadius: ".15em" }));
 	var shortcutTimer = 0;
 	var showShortcut = /* @__PURE__ */ __name((c) => {
-		if (accountSettings?.NoShowShortcuts) {
+		if (accountSettings?.NoShowShortcuts || mobile.active) {
 			return;
 		}
 		if (shortcutTimer) {
@@ -3325,6 +3413,10 @@
 				focus ? dom._class("focus") : [],
 				attr.draggable("true"),
 				/* @__PURE__ */ __name(function dragstart(e) {
+					if (mobile.active) {
+						e.preventDefault();
+						return;
+					}
 					if (!msglistView.selected().includes(msgitemView)) {
 						e.preventDefault();
 						window.alert("Can only drag items in selection.");
@@ -3377,6 +3469,7 @@
 					e.preventDefault();
 					e.stopPropagation();
 					msglistView.click(msgitemView, e.ctrlKey, e.shiftKey);
+					mobile.open("msg");
 				}, "click")
 			);
 			msgitemView.root.replaceWith(elem);
@@ -3727,8 +3820,8 @@
 			css("msgmeta", { backgroundColor: styles.backgroundColorMild, borderBottom: "5px solid", borderBottomColor: ["white", "black"], maxHeight: "90%", overflowY: "auto" }),
 			attr.role("region"),
 			attr.arialabel("Buttons and headers for message"),
-			msgbuttonElem = dom.div(),
-			dom.div(attr.arialive("assertive"), dom.table(styleClasses.msgHeaders, msgheaderElem = dom.tbody()), msgheaderFullElem = dom.table(), msgattachmentElem = dom.div(), msgmodeElem = dom.div()),
+			msgbuttonElem = dom.div(dom._class("msgButtons")),
+			dom.div(attr.arialive("assertive"), dom.table(styleClasses.msgHeaders, msgheaderElem = dom.tbody()), msgheaderFullElem = dom.table(), msgattachmentElem = dom.div(), msgmodeElem = dom.div(dom._class("msgMode"))),
 			// Explicit separator that separates headers from body, to
 			// prevent HTML messages from faking UI elements.
 			dom.div(css("headerBodySeparator", { height: "2px", backgroundColor: styles.borderColor }))
@@ -3738,7 +3831,9 @@
 		const trashMailboxID = listMailboxes().find((mb) => mb.Trash)?.ID;
 		const draftMailboxID = listMailboxes().find((mb) => mb.Draft)?.ID;
 		const loadButtons = /* @__PURE__ */ __name((pm) => {
-			dom._kids(msgbuttonElem, dom.div(dom._class("pad"), m.MailboxID === draftMailboxID ? dom.clickbutton("Edit", attr.title("Continue editing this draft message."), clickCmd(cmdComposeDraft, shortcuts)) : [], " ", !pm || !pm.ListReplyAddress ? [] : dom.clickbutton("Reply to list", attr.title("Compose a reply to this mailing list."), clickCmd(cmdReplyList, shortcuts)), " ", pm && pm.ListReplyAddress && formatEmail(pm.ListReplyAddress) === fromAddress ? [] : dom.clickbutton("Reply", attr.title("Compose a reply to the sender of this message."), clickCmd(cmdReply, shortcuts)), " ", (mi.Envelope.To || []).length <= 1 && (mi.Envelope.CC || []).length === 0 && (mi.Envelope.BCC || []).length === 0 ? [] : dom.clickbutton("Reply all", attr.title("Compose a reply to all participants of this message."), clickCmd(cmdReplyAll, shortcuts)), " ", dom.clickbutton("Forward", attr.title("Compose a forwarding message, optionally including attachments."), clickCmd(cmdForward, shortcuts)), " ", dom.clickbutton("Archive", attr.title("Move to the Archive mailbox."), clickCmd(msglistView.cmdArchive, shortcuts)), " ", m.MailboxID === trashMailboxID ? dom.clickbutton("Delete", attr.title("Permanently delete message."), clickCmd(msglistView.cmdDelete, shortcuts)) : dom.clickbutton("Trash", attr.title("Move to the Trash mailbox."), clickCmd(msglistView.cmdTrash, shortcuts)), " ", dom.clickbutton("Junk", attr.title("Move to Junk mailbox, marking as junk and causing this message to be used in spam classification of new incoming messages."), clickCmd(msglistView.cmdJunk, shortcuts)), " ", dom.clickbutton("Move to...", /* @__PURE__ */ __name(function click(e) {
+			dom._kids(msgbuttonElem, dom.div(dom._class("pad"), dom.clickbutton(dom._class("mobileOnly"), "Details", attr.title("Show or hide message headers."), /* @__PURE__ */ __name(function click() {
+				msgmetaElem.classList.toggle("showHeaderDetails");
+			}, "click")), " ", m.MailboxID === draftMailboxID ? dom.clickbutton("Edit", attr.title("Continue editing this draft message."), clickCmd(cmdComposeDraft, shortcuts)) : [], " ", !pm || !pm.ListReplyAddress ? [] : dom.clickbutton("Reply to list", attr.title("Compose a reply to this mailing list."), clickCmd(cmdReplyList, shortcuts)), " ", pm && pm.ListReplyAddress && formatEmail(pm.ListReplyAddress) === fromAddress ? [] : dom.clickbutton("Reply", attr.title("Compose a reply to the sender of this message."), clickCmd(cmdReply, shortcuts)), " ", (mi.Envelope.To || []).length <= 1 && (mi.Envelope.CC || []).length === 0 && (mi.Envelope.BCC || []).length === 0 ? [] : dom.clickbutton("Reply all", attr.title("Compose a reply to all participants of this message."), clickCmd(cmdReplyAll, shortcuts)), " ", dom.clickbutton("Forward", attr.title("Compose a forwarding message, optionally including attachments."), clickCmd(cmdForward, shortcuts)), " ", dom.clickbutton("Archive", attr.title("Move to the Archive mailbox."), clickCmd(msglistView.cmdArchive, shortcuts)), " ", m.MailboxID === trashMailboxID ? dom.clickbutton("Delete", attr.title("Permanently delete message."), clickCmd(msglistView.cmdDelete, shortcuts)) : dom.clickbutton("Trash", attr.title("Move to the Trash mailbox."), clickCmd(msglistView.cmdTrash, shortcuts)), " ", dom.clickbutton("Junk", attr.title("Move to Junk mailbox, marking as junk and causing this message to be used in spam classification of new incoming messages."), clickCmd(msglistView.cmdJunk, shortcuts)), " ", dom.clickbutton("Move to...", /* @__PURE__ */ __name(function click(e) {
 				movePopover(e, listMailboxes(), [m]);
 			}, "click")), " ", dom.clickbutton("Labels...", attr.title("Add/remove labels."), /* @__PURE__ */ __name(function click(e) {
 				labelsPopover(e, [m], possibleLabels);
@@ -4300,6 +4395,7 @@
 			msgView = null;
 			if (effselected.length === 0) {
 				dom._kids(msgElem);
+				mobile.selectionEmpty();
 			} else if (effselected.length === 1) {
 				msgElem.classList.toggle("loading", true);
 				const loaded = /* @__PURE__ */ __name(() => {
@@ -5352,6 +5448,7 @@
 			}
 		}, "dblclick"), /* @__PURE__ */ __name(async function click() {
 			mbv.root.focus();
+			mobile.open("msglist");
 			await withStatus("Opening mailbox", mbv.open(true));
 		}, "click"), /* @__PURE__ */ __name(function dragover(e) {
 			e.preventDefault();
@@ -5994,6 +6091,7 @@
 		return opts;
 	}, "parseComposeMailto");
 	var init = /* @__PURE__ */ __name(async () => {
+		mobileCSS();
 		let connectionElem;
 		let layoutElem;
 		let accountElem;
@@ -6114,7 +6212,8 @@
 			}
 			const l = window.location;
 			const url = l.protocol + "//" + l.host + l.pathname + l.search + hash;
-			window.history.replaceState(void 0, "", url);
+			window.history.replaceState(window.history.state, "", url);
+			mobile.update();
 		}, "setLocationHash");
 		const loadSearch = /* @__PURE__ */ __name((q) => {
 			search = { active: true, query: q };
@@ -6242,6 +6341,7 @@
 		}, "refineToggle");
 		let threadMode;
 		const msgColumnDraggerStyle = css("msgColumnDragger", { position: "absolute", top: 0, bottom: 0, width: "1px", backgroundColor: styles.popupBorderColor, left: "2.5px" });
+		let mobileBackBtn;
 		let msglistElem = dom.div(css("msgList", { backgroundColor: styles.msglistBackgroundColor, position: "absolute", left: "0", right: 0, top: 0, bottom: 0, display: "flex", flexDirection: "column" }), dom.div(attr.role("region"), attr.arialabel("Filter and sorting buttons for message list"), css("msgListFilterSorting", { display: "flex", justifyContent: "space-between", backgroundColor: styles.backgroundColorMild, borderBottom: "1px solid", borderBottomColor: styles.borderColor, padding: ".25em .5em" }), dom.div(dom.h1("Refine:", css("refineTitle", { fontWeight: "normal", fontSize: "inherit", display: "inline", margin: 0 }), attr.title("Refine message listing with quick filters. These refinement filters are in addition to any search criteria, but the refine attachment filter overrides a search attachment criteria.")), " ", dom.span(dom._class("btngroup"), refineUnreadBtn = dom.clickbutton(settings.refine === "unread" ? dom._class("active") : [], "Unread", attr.title("Only show messages marked as unread."), /* @__PURE__ */ __name(async function click(e) {
 			await refineToggle("unread", e.target);
 		}, "click")), refineReadBtn = dom.clickbutton(settings.refine === "read" ? dom._class("active") : [], "Read", attr.title("Only show messages marked as read."), /* @__PURE__ */ __name(async function click(e) {
@@ -6278,7 +6378,7 @@
 			settingsPut({ ...settings, orderAsc: !settings.orderAsc });
 			e.target.classList.toggle("invert", settings.orderAsc);
 			await withStatus("Requesting messages", requestNewView(true));
-		}, "click")))), dom.div(style({ height: "1ex", position: "relative" }), dom.div(dom._class("msgItemFlags")), dom.div(dom._class("msgItemFlagsOffset"), css("msgItemFlagsGrab", { position: "absolute", width: "6px", top: 0, bottom: 0, marginLeft: "-3px", cursor: "ew-resize" }), dom.div(msgColumnDraggerStyle), /* @__PURE__ */ __name(function mousedown(e) {
+		}, "click")))), dom.div(dom._class("msgListGrabs"), style({ height: "1ex", position: "relative" }), dom.div(dom._class("msgItemFlags")), dom.div(dom._class("msgItemFlagsOffset"), css("msgItemFlagsGrab", { position: "absolute", width: "6px", top: 0, bottom: 0, marginLeft: "-3px", cursor: "ew-resize" }), dom.div(msgColumnDraggerStyle), /* @__PURE__ */ __name(function mousedown(e) {
 			startDrag(e, (e2) => {
 				const bounds = msglistscrollElem.getBoundingClientRect();
 				const width = Math.round(e2.clientX - bounds.x);
@@ -6324,6 +6424,7 @@
 			searchView.root.remove();
 			searchbarElem.blur();
 			document.body.focus();
+			mobile.open("msglist");
 			await withStatus("Requesting messages", requestNewView(true, f, notf));
 		}, "startSearch");
 		const searchViewClose = /* @__PURE__ */ __name(() => {
@@ -6398,9 +6499,11 @@
 		};
 		const topMailboxesStyle = css("topMailboxes", { backgroundColor: styles.mailboxesTopBackgroundColor });
 		css("searchbarActive", { background: styles.mailboxActiveBackground });
-		const webmailroot = dom.div(css("webmailRoot", { display: "flex", flexDirection: "column", alignContent: "stretch", height: "100dvh" }), dom.div(topMailboxesStyle, style({ display: "flex" }), attr.role("region"), attr.arialabel("Top bar"), topcomposeboxElem = dom.div(dom._class("pad"), style({ width: settings.mailboxesWidth + "px", textAlign: "center" }), composeBtn = dom.clickbutton("Compose", attr.title("Compose new email message."), /* @__PURE__ */ __name(function click() {
+		const webmailroot = dom.div(css("webmailRoot", { display: "flex", flexDirection: "column", alignContent: "stretch", height: "100dvh" }), dom.div(topMailboxesStyle, style({ display: "flex" }), attr.role("region"), attr.arialabel("Top bar"), topcomposeboxElem = dom.div(dom._class("pad"), dom._class("topComposeBox"), style({ width: settings.mailboxesWidth + "px", textAlign: "center" }), composeBtn = dom.clickbutton("Compose", attr.title("Compose new email message."), /* @__PURE__ */ __name(function click() {
 			shortcutCmd(cmdCompose, shortcuts);
-		}, "click"))), dom.div(dom._class("pad"), css("searchbarBox", { paddingLeft: 0, display: "flex", flexGrow: 1 }), searchbarElemBox = dom.search(style({ display: "flex", marginRight: ".5em" }), dom.form(style({ display: "flex", flexGrow: 1 }), searchbarElem = dom.input(attr.placeholder("Search..."), style({ position: "relative", width: "100%" }), attr.title("Search messages based on criteria like matching free-form text, in a mailbox, labels, addressees."), focusPlaceholder('word "with space" -notword mb:Inbox f:from@x.example t:rcpt@x.example start:2023-7-1 end:2023-7-8 s:"subject" a:images l:$Forwarded h:Reply-To:other@x.example minsize:500kb'), /* @__PURE__ */ __name(function click() {
+		}, "click"))), dom.div(dom._class("pad"), css("searchbarBox", { paddingLeft: 0, display: "flex", flexGrow: 1 }), mobileBackBtn = dom.clickbutton(dom._class("mobileOnly"), dom._class("mobileBack"), "\u2190", attr.arialabel("Back"), /* @__PURE__ */ __name(function click() {
+			mobileBack();
+		}, "click")), searchbarElemBox = dom.search(style({ display: "flex", marginRight: ".5em" }), dom.form(style({ display: "flex", flexGrow: 1 }), searchbarElem = dom.input(attr.placeholder("Search..."), style({ position: "relative", width: "100%" }), attr.title("Search messages based on criteria like matching free-form text, in a mailbox, labels, addressees."), focusPlaceholder('word "with space" -notword mb:Inbox f:from@x.example t:rcpt@x.example start:2023-7-1 end:2023-7-8 s:"subject" a:images l:$Forwarded h:Reply-To:other@x.example minsize:500kb'), /* @__PURE__ */ __name(function click() {
 			cmdSearch();
 			showShortcut("/");
 		}, "click"), /* @__PURE__ */ __name(function focus() {
@@ -6444,7 +6547,13 @@
 		}, "click")), /* @__PURE__ */ __name(async function submit(e) {
 			e.preventDefault();
 			await searchView.submit();
-		}, "submit"))), connectionElem = dom.div(), statusElem = dom.div(css("status", { marginLeft: ".5em", flexGrow: "1" }), attr.role("status")), dom.div(style({ paddingLeft: "1em" }), layoutElem = dom.select(attr.title("Layout of message list and message panes. Top/bottom has message list above message view. Left/Right has message list left, message view right. Auto selects based on window width and automatically switches on resize. Wide screens get left/right, smaller screens get top/bottom."), dom.option("Auto layout", attr.value("auto"), settings.layout === "auto" ? attr.selected("") : []), dom.option("Top/bottom", attr.value("topbottom"), settings.layout === "topbottom" ? attr.selected("") : []), dom.option("Left/right", attr.value("leftright"), settings.layout === "leftright" ? attr.selected("") : []), /* @__PURE__ */ __name(function change() {
+		}, "submit"))), connectionElem = dom.div(), statusElem = dom.div(css("status", { marginLeft: ".5em", flexGrow: "1" }), attr.role("status")), dom.clickbutton(dom._class("mobileOnly"), dom._class("mobileMenuBtn"), "\u2261", attr.arialabel("Menu"), /* @__PURE__ */ __name(function click() {
+			document.body.classList.toggle("mobileMenuOpen");
+		}, "click")), dom.div(dom._class("topMenu"), style({ paddingLeft: "1em" }), /* @__PURE__ */ __name(function click(e) {
+			if (e.target !== layoutElem) {
+				document.body.classList.toggle("mobileMenuOpen", false);
+			}
+		}, "click"), layoutElem = dom.select(attr.title("Layout of message list and message panes. Top/bottom has message list above message view. Left/Right has message list left, message view right. Auto selects based on window width and automatically switches on resize. Wide screens get left/right, smaller screens get top/bottom."), dom.option("Auto layout", attr.value("auto"), settings.layout === "auto" ? attr.selected("") : []), dom.option("Top/bottom", attr.value("topbottom"), settings.layout === "topbottom" ? attr.selected("") : []), dom.option("Left/right", attr.value("leftright"), settings.layout === "leftright" ? attr.selected("") : []), dom.option("Mobile", attr.value("mobile"), settings.layout === "mobile" ? attr.selected("") : []), /* @__PURE__ */ __name(function change() {
 			settingsPut({ ...settings, layout: layoutElem.value });
 			if (layoutElem.value === "auto") {
 				autoselectLayout();
@@ -6516,11 +6625,83 @@
 			msglistView.key(k, e);
 		});
 		let currentLayout = "";
+		let mobileCurrent = "mailboxes";
+		const mobileApply = /* @__PURE__ */ __name((screen) => {
+			mobileCurrent = screen;
+			document.body.setAttribute("data-mobile-screen", screen);
+			document.body.classList.toggle("mobileMenuOpen", false);
+			mobile.update();
+		}, "mobileApply");
+		mobile.update = () => {
+			if (!mobile.active) {
+				return;
+			}
+			const mb = mailboxlistView.activeMailbox();
+			const name = mb ? mb.Name.substring(mb.Name.lastIndexOf("/") + 1) : search.active ? "Search" : "";
+			dom._kids(mobileBackBtn, "\u2190", " " + name);
+		};
+		mobile.open = (screen) => {
+			if (!mobile.active || screen === mobileCurrent) {
+				return;
+			}
+			window.history.pushState({ mobileScreen: screen, mobilePrev: mobileCurrent }, "", window.location.href);
+			mobileApply(screen);
+		};
+		const mobileBack = /* @__PURE__ */ __name(() => {
+			const parent = mobileCurrent === "msg" ? "msglist" : "mailboxes";
+			if (window.history.state?.mobilePrev === parent) {
+				window.history.back();
+			} else {
+				window.history.replaceState({ mobileScreen: parent }, "", window.location.href);
+				mobileApply(parent);
+			}
+		}, "mobileBack");
+		mobile.selectionEmpty = () => {
+			if (mobile.active && mobileCurrent === "msg") {
+				mobileBack();
+			}
+		};
+		window.addEventListener("popstate", (e) => {
+			if (mobile.active && e.state?.mobileScreen) {
+				mobileApply(e.state.mobileScreen);
+				setLocationHash();
+			}
+		});
+		let mobileEntered = false;
+		const mobileEnter = /* @__PURE__ */ __name(() => {
+			const pageLoad = !mobileEntered;
+			mobileEntered = true;
+			mobile.active = true;
+			document.body.classList.toggle("mobile", true);
+			const screen = window.history.state?.mobileScreen;
+			if (screen && !(pageLoad && screen === "mailboxes")) {
+				mobileApply(screen);
+				return;
+			}
+			window.history.replaceState({ mobileScreen: "mailboxes" }, "", window.location.href);
+			mobileApply("mailboxes");
+			mobile.open("msglist");
+			if (!screen && /,[0-9]+(,compose:[0-9]+)?$/.test(decodeURIComponent(window.location.hash))) {
+				mobile.open("msg");
+			}
+		}, "mobileEnter");
+		const mobileLeave = /* @__PURE__ */ __name(() => {
+			mobile.active = false;
+			document.body.classList.toggle("mobile", false);
+			document.body.classList.toggle("mobileMenuOpen", false);
+			document.body.removeAttribute("data-mobile-screen");
+		}, "mobileLeave");
 		const selectLayout = /* @__PURE__ */ __name((want) => {
 			if (want === currentLayout) {
 				return;
 			}
-			if (want === "leftright") {
+			if (currentLayout === "mobile") {
+				mobileLeave();
+			}
+			if (want === "mobile") {
+				dom._kids(splitElem, dom.div(dom._class("layoutMobilePane"), dom._class("layoutMobileList"), msglistElem), dom.div(dom._class("layoutMobilePane"), dom._class("layoutMobileMsg"), msgElem));
+				mobileEnter();
+			} else if (want === "leftright") {
 				let left, split, right;
 				dom._kids(splitElem, left = dom.div(css("layoutLeft", { position: "absolute", left: 0, top: 0, bottom: 0 }), style({ width: "calc(" + settings.leftWidthPct + "% - 1px)" }), msglistElem), split = dom.div(css("listMsgLeftRightGrab", { position: "absolute", width: "5px", top: 0, bottom: 0, cursor: "ew-resize", zIndex: zindexes.splitter }), style({ left: "calc(" + settings.leftWidthPct + "% - 2px)" }), dom.div(css("listMsgLeftRightLine", { position: "absolute", backgroundColor: styles.popupBorderColor, top: 0, bottom: 0, width: "1px", left: "2px", right: "2px" })), /* @__PURE__ */ __name(async function mousedown(e) {
 					right.style.pointerEvents = "none";
@@ -6552,7 +6733,8 @@
 			checkMsglistWidth();
 		}, "selectLayout");
 		const autoselectLayout = /* @__PURE__ */ __name(() => {
-			const want = window.innerWidth <= 2 * 2560 / 3 ? "topbottom" : "leftright";
+			const narrow = window.matchMedia("(max-width: 700px)").matches;
+			const want = narrow ? "mobile" : window.innerWidth <= 2 * 2560 / 3 ? "topbottom" : "leftright";
 			selectLayout(want);
 		}, "autoselectLayout");
 		const styleElem = dom.style(attr.type("text/css"));
@@ -6646,6 +6828,9 @@
 					window.alert("Error parsing compose mailto URL: " + errmsg(err));
 					window.location.hash = "";
 				}
+				return;
+			}
+			if (mobile.active && window.history.state?.mobileScreen) {
 				return;
 			}
 			const [search2, msgid, editMsgid, f, notf] = parseLocationHash(mailboxlistView);

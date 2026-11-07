@@ -159,6 +159,97 @@ try {
 let accountSettings: api.Settings
 let introboxMailbox: string = ''
 
+// The "mobile" layout for narrow screens shows one screen at a time: mailboxes,
+// message list or message. All panes stay in the DOM, CSS shows the active screen.
+type mobileScreen = 'mailboxes' | 'msglist' | 'msg'
+const mobile = {
+	active: false,
+	// Functions below are set during init.
+	open: (_screen: mobileScreen) => {}, // Navigate to a screen, adding a history entry.
+	selectionEmpty: () => {}, // No message left to show.
+	update: () => {}, // Active mailbox or search changed.
+}
+
+const mobileCSS = () => {
+	const hidden = {visibility: 'hidden'}
+	const rules: [string, {[prop: string]: string | number | string[]}][] = [
+		// Prevent the page from becoming wider than the screen, causing browsers to zoom out.
+		['.mobile, .mobile .webmailRoot', {overflow: 'hidden', maxWidth: '100vw'}],
+		['.mobile button, .mobile select, .mobile input', {minHeight: '2.25em'}],
+		['.mobileOnly', {display: 'none'}],
+		['.mobile .mobileOnly', {display: 'inline-block'}],
+
+		// Screens.
+		['.mobile .mailboxesBox', {width: '100%'}],
+		['.mobile .listMsgBox', {left: 0}],
+		['.mobile .layoutMobilePane', {position: 'absolute', left: 0, right: 0, top: 0, bottom: 0}],
+		['.mobile .mailboxesListGrab, .mobile .msgListGrabs, .mobile .msgItemThreadBar', {display: 'none'}],
+		['.mobile:not([data-mobile-screen=mailboxes]) .mailboxesBox', hidden],
+		['.mobile[data-mobile-screen=mailboxes] .listMsgBox', hidden],
+		['.mobile:not([data-mobile-screen=msglist]) .layoutMobileList', hidden],
+		['.mobile:not([data-mobile-screen=msg]) .layoutMobileMsg', hidden],
+
+		// Top bar, with back button, search and a menu.
+		['.mobile .searchbarBox', {alignItems: 'center', gap: '.25em', minWidth: 0, paddingLeft: '.5em'}],
+		['.mobile .searchbarBox search', {flex: '1 1 0', minWidth: 0, marginRight: 0}],
+		['.mobile[data-mobile-screen=msg] .searchbarBox search', {display: 'none'}],
+		['.mobile[data-mobile-screen=mailboxes] .mobileBack', {display: 'none'}],
+		['.mobile .mobileBack', {maxWidth: '35vw', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0}],
+		['.mobile .mobileMenuBtn', {marginLeft: 'auto', flexShrink: 0}],
+		['.mobile .status', {position: 'fixed', left: '.5em', bottom: '.5em', marginLeft: 0, maxWidth: '70vw', zIndex: zindexes.compose, backgroundColor: styles.popupBackgroundColor}],
+		['.mobile .topMenu', {display: 'none', position: 'fixed', top: '3.5em', right: '.5em', maxWidth: '90vw', padding: '.5em', gap: '.5em', flexDirection: 'column', alignItems: 'flex-start', overflowWrap: 'anywhere', zIndex: zindexes.popover, backgroundColor: styles.popupBackgroundColor, boxShadow: styles.boxShadow, border: '1px solid', borderColor: styles.popupBorderColor}],
+		['.mobile.mobileMenuOpen .topMenu', {display: 'flex'}],
+		['.mobile .topComposeBox', {position: 'fixed', right: '.5em', bottom: '.5em', width: 'auto', padding: 0, zIndex: zindexes.splitter}],
+		['.mobile[data-mobile-screen=msg] .topComposeBox', {display: 'none'}],
+
+		// Mailboxes, no hover to reveal the collapse buttons.
+		['.mobile .mailbox', {padding: '.5em .25em'}],
+		['.mobile .mailboxesBox .pad', {paddingBottom: '4em'}], // Room for compose button.
+		['.mobile .mailboxCollapse', {visibility: 'visible'}],
+
+		// Message list, filters and sorting on a single line that scrolls.
+		['.mobile .msgListFilterSorting', {overflowX: 'auto', whiteSpace: 'nowrap', gap: '.5em', flexShrink: 0}],
+		['.mobile .msgListFilterSorting > div', {flexShrink: 0}],
+		['.mobile .refineTitle', {display: 'none'}],
+		// Messages with from and age on the first line, subject on the second.
+		['.mobile .msgItem', {display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', padding: '.25em 0', borderBottomColor: styles.borderColor}],
+		['.mobile .msgItem:last-child', {marginBottom: '4em'}], // Room for compose button.
+		['.mobile .msgItemFlags', {gridRow: '1 / span 2', gridColumn: 1, width: 'auto', minWidth: '1.25em'}],
+		['.mobile .msgItemFrom', {gridRow: 1, gridColumn: 2, width: 'auto', minWidth: 0}],
+		['.mobile .msgItemAge', {gridRow: 1, gridColumn: 3, width: 'auto', whiteSpace: 'nowrap'}],
+		['.mobile .msgItemSubject', {gridRow: 2, gridColumn: '2 / span 2', width: 'auto', minWidth: 0}],
+		['.mobile .msgItemFromText, .mobile .msgItemSubjectText', {textOverflow: 'ellipsis', minWidth: 0}],
+
+		// Message, leaving most of the screen to the body.
+		['.mobile .msgmeta', {maxHeight: '50%'}],
+		['.mobile .msgButtons > .pad, .mobile .msgMode > .pad', {overflowX: 'auto', whiteSpace: 'nowrap'}],
+		['.mobile .msgFromReceivedSpread, .mobile .msgSubjectAttrsSpread', {flexDirection: 'column'}],
+		['.mobile .msgHeaderDetail', {display: 'none'}],
+		['.mobile .showHeaderDetails .msgHeaderDetail', {display: 'table-row'}],
+
+		// Popups.
+		['.mobile .composePopup', {left: 0, right: 0, top: 0, bottom: 0, width: '100%', height: '100%', minWidth: 0, maxWidth: '100%', borderRadius: 0, zIndex: zindexes.popup, padding: '.5em', overflowY: 'auto', overflowX: 'hidden'}],
+		// Keep the form within the screen, a long from address would make it wider. It
+		// scrolls vertically if it doesn't fit, with a smaller message body to prevent that.
+		['.mobile .composeForm, .mobile .composeFields', {minWidth: 0, maxWidth: '100%', flexShrink: 0}],
+		['.mobile .composeFields > table', {tableLayout: 'fixed'}],
+		['.mobile .composeFields > table td:first-child', {width: '4.75em'}],
+		['.mobile .composeFields > table td:last-child', {overflowWrap: 'anywhere'}],
+		['.mobile .composeButtonsSpread', {flexWrap: 'wrap', gap: '.25em'}],
+		['.mobile .composeButtonsSpread > div', {maxWidth: '100%'}],
+		['.mobile .composeButtonsSpread select', {maxWidth: '100%'}],
+		['.mobile .composeFields .autosize', {maxWidth: '100%'}],
+		['.mobile .composeFields > textarea', {flex: '1 0 8em', minHeight: '8em'}],
+		['.mobile .composeResizeGrab', {display: 'none'}],
+		['.mobile .popupSettings', {minWidth: 0}],
+		['.mobile .searchContent', {left: 0, right: 0, width: 'auto', maxHeight: '80dvh', overflowY: 'auto', overflowX: 'hidden'}],
+		['.mobile .searchTable, .mobile .searchTable tbody, .mobile .searchTable tr, .mobile .searchTable td', {display: 'block', width: '100%'}],
+		['.mobile .searchTable input:not([type=checkbox]):not([type=radio]), .mobile .searchTable select', {maxWidth: '100%'}],
+		['.mobile .attachmentsIframe', {margin: 0}],
+	]
+	rules.forEach(r => ensureCSS(r[0], r[1], true))
+}
+
 const defaultSettings = {
 	mailboxesWidth: 240,
 	layout: 'auto', // Automatic switching between left/right and top/bottom layout, based on screen width.
@@ -217,7 +308,7 @@ const parseSettings = (): typeof defaultSettings => {
 			msglistageWidth: getInt('msglistageWidth'),
 			msglistfromPct: getInt('msglistfromPct'),
 			ignoreErrorsUntil: getInt('ignoreErrorsUntil'),
-			layout: getString('layout', 'auto', 'leftright', 'topbottom'),
+			layout: getString('layout', 'auto', 'leftright', 'topbottom', 'mobile'),
 			mailboxCollapsed: mailboxCollapsed,
 			showAllHeaders: getBool('showAllHeaders'),
 			threading: getString('threading', api.ThreadMode.ThreadOff, api.ThreadMode.ThreadOn, api.ThreadMode.ThreadUnread) as api.ThreadMode,
@@ -394,7 +485,7 @@ const envelopeIdentity = (l: api.MessageAddress[]): api.MessageAddress | null =>
 let shortcutElem = dom.div(css('shortcutFlash', {fontSize: '2em', position: 'absolute', left: '.25em', bottom: '.25em', backgroundColor: '#888', padding: '0.25em .5em', color: 'white', borderRadius: '.15em'}))
 let shortcutTimer = 0
 const showShortcut = (c: string) => {
-	if (accountSettings?.NoShowShortcuts) {
+	if (accountSettings?.NoShowShortcuts || mobile.active) {
 		return
 	}
 	if (shortcutTimer) {
@@ -2826,6 +2917,10 @@ const newMsgitemView = (mi: api.MessageItem, msglistView: MsglistView, otherMail
 			focus ? dom._class('focus') : [],
 			attr.draggable('true'),
 			function dragstart(e: DragEvent) {
+				if (mobile.active) {
+					e.preventDefault() // Long press on touch screens.
+					return
+				}
 				if (!msglistView.selected().includes(msgitemView)) {
 					e.preventDefault()
 					window.alert('Can only drag items in selection.')
@@ -2918,6 +3013,7 @@ const newMsgitemView = (mi: api.MessageItem, msglistView: MsglistView, otherMail
 				e.preventDefault()
 				e.stopPropagation()
 				msglistView.click(msgitemView, e.ctrlKey, e.shiftKey)
+				mobile.open('msg')
 			}
 		)
 		msgitemView.root.replaceWith(elem)
@@ -3307,7 +3403,7 @@ const newMsgView = (miv: MsgitemView, msglistView: MsglistView, listMailboxes: l
 	const msgmetaElem = dom.div(
 		css('msgmeta', {backgroundColor: styles.backgroundColorMild, borderBottom: '5px solid', borderBottomColor: ['white', 'black'], maxHeight: '90%', overflowY: 'auto'}),
 		attr.role('region'), attr.arialabel('Buttons and headers for message'),
-		msgbuttonElem=dom.div(),
+		msgbuttonElem=dom.div(dom._class('msgButtons')),
 		dom.div(
 			attr.arialive('assertive'),
 			dom.table(
@@ -3316,7 +3412,7 @@ const newMsgView = (miv: MsgitemView, msglistView: MsglistView, listMailboxes: l
 			),
 			msgheaderFullElem=dom.table(),
 			msgattachmentElem=dom.div(),
-			msgmodeElem=dom.div(),
+			msgmodeElem=dom.div(dom._class('msgMode')),
 		),
 		// Explicit separator that separates headers from body, to
 		// prevent HTML messages from faking UI elements.
@@ -3338,6 +3434,9 @@ const newMsgView = (miv: MsgitemView, msglistView: MsglistView, listMailboxes: l
 	const loadButtons = (pm: api.ParsedMessage | null) => {
 		dom._kids(msgbuttonElem,
 			dom.div(dom._class('pad'),
+				dom.clickbutton(dom._class('mobileOnly'), 'Details', attr.title('Show or hide message headers.'), function click() {
+					msgmetaElem.classList.toggle('showHeaderDetails')
+				}), ' ',
 				m.MailboxID === draftMailboxID ? dom.clickbutton('Edit', attr.title('Continue editing this draft message.'), clickCmd(cmdComposeDraft, shortcuts)) : [], ' ',
 				(!pm || !pm.ListReplyAddress) ? [] : dom.clickbutton('Reply to list', attr.title('Compose a reply to this mailing list.'), clickCmd(cmdReplyList, shortcuts)), ' ',
 				(pm && pm.ListReplyAddress && formatEmail(pm.ListReplyAddress) === fromAddress) ? [] : dom.clickbutton('Reply', attr.title('Compose a reply to the sender of this message.'), clickCmd(cmdReply, shortcuts)), ' ',
@@ -4208,6 +4307,7 @@ const newMsglistView = (msgElem: HTMLElement, activeMailbox: () => api.Mailbox |
 
 		if (effselected.length === 0) {
 			dom._kids(msgElem)
+			mobile.selectionEmpty()
 		} else if (effselected.length === 1) {
 			msgElem.classList.toggle('loading', true)
 			const loaded = () => { msgElem.classList.toggle('loading', false) }
@@ -5513,6 +5613,7 @@ const newMailboxView = (xmb: api.Mailbox, mailboxlistView: MailboxlistView, othe
 		},
 		async function click() {
 			mbv.root.focus()
+			mobile.open('msglist')
 			await withStatus('Opening mailbox', mbv.open(true))
 		},
 		function dragover(e: DragEvent) {
@@ -6467,6 +6568,8 @@ type possibleLabels = () => string[]
 type listMailboxes = () => api.Mailbox[]
 
 const init = async () => {
+	mobileCSS()
+
 	let connectionElem: HTMLElement // SSE connection status/error. Empty when connected.
 	let layoutElem: HTMLSelectElement // Select dropdown for layout.
 	let accountElem: HTMLElement
@@ -6602,7 +6705,8 @@ const init = async () => {
 		// plain http with firefox.
 		const l = window.location
 		const url = l.protocol + '//' + l.host + l.pathname + l.search + hash
-		window.history.replaceState(undefined, '', url)
+		window.history.replaceState(window.history.state, '', url) // State has the mobile screen.
+		mobile.update()
 	}
 
 	const loadSearch = (q: string) => {
@@ -6755,6 +6859,8 @@ const init = async () => {
 
 	const msgColumnDraggerStyle = css('msgColumnDragger', {position: 'absolute', top: 0, bottom: 0, width: '1px', backgroundColor: styles.popupBorderColor, left: '2.5px'})
 
+	let mobileBackBtn: HTMLButtonElement
+
 	let msglistElem = dom.div(css('msgList', {backgroundColor: styles.msglistBackgroundColor, position: 'absolute', left: '0', right: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column'}),
 		dom.div(
 			attr.role('region'), attr.arialabel('Filter and sorting buttons for message list'),
@@ -6860,6 +6966,7 @@ const init = async () => {
 			),
 		),
 		dom.div(
+			dom._class('msgListGrabs'),
 			style({height: '1ex', position: 'relative'}),
 			dom.div(dom._class('msgItemFlags')),
 			dom.div(dom._class('msgItemFlagsOffset'), css('msgItemFlagsGrab', {position: 'absolute', width: '6px', top: 0, bottom: 0, marginLeft: '-3px', cursor: 'ew-resize'}),
@@ -6942,6 +7049,7 @@ const init = async () => {
 		searchView.root.remove()
 		searchbarElem.blur()
 		document.body.focus()
+		mobile.open('msglist')
 		await withStatus('Requesting messages', requestNewView(true, f, notf))
 	}
 
@@ -7037,7 +7145,7 @@ const init = async () => {
 		dom.div(topMailboxesStyle,
 			style({display: 'flex'}),
 			attr.role('region'), attr.arialabel('Top bar'),
-			topcomposeboxElem=dom.div(dom._class('pad'),
+			topcomposeboxElem=dom.div(dom._class('pad'), dom._class('topComposeBox'),
 				style({width: settings.mailboxesWidth + 'px', textAlign: 'center'}),
 				composeBtn=dom.clickbutton('Compose', attr.title('Compose new email message.'), function click() {
 					shortcutCmd(cmdCompose, shortcuts)
@@ -7045,6 +7153,9 @@ const init = async () => {
 			),
 			dom.div(dom._class('pad'),
 				css('searchbarBox', {paddingLeft: 0, display: 'flex', flexGrow: 1}),
+				mobileBackBtn=dom.clickbutton(dom._class('mobileOnly'), dom._class('mobileBack'), '←', attr.arialabel('Back'), function click() {
+					mobileBack()
+				}),
 				searchbarElemBox=dom.search(
 					style({display: 'flex', marginRight: '.5em'}),
 					dom.form(
@@ -7117,13 +7228,23 @@ const init = async () => {
 				),
 				connectionElem=dom.div(),
 				statusElem=dom.div(css('status', {marginLeft: '.5em', flexGrow: '1'}), attr.role('status')),
+				dom.clickbutton(dom._class('mobileOnly'), dom._class('mobileMenuBtn'), '≡', attr.arialabel('Menu'), function click() {
+					document.body.classList.toggle('mobileMenuOpen')
+				}),
 				dom.div(
+					dom._class('topMenu'),
 					style({paddingLeft: '1em'}),
+					function click(e: MouseEvent) {
+						if (e.target !== layoutElem) {
+							document.body.classList.toggle('mobileMenuOpen', false)
+						}
+					},
 					layoutElem=dom.select(
 						attr.title('Layout of message list and message panes. Top/bottom has message list above message view. Left/Right has message list left, message view right. Auto selects based on window width and automatically switches on resize. Wide screens get left/right, smaller screens get top/bottom.'),
 						dom.option('Auto layout', attr.value('auto'), settings.layout === 'auto' ? attr.selected('') : []),
 						dom.option('Top/bottom', attr.value('topbottom'), settings.layout === 'topbottom' ? attr.selected('') : []),
 						dom.option('Left/right', attr.value('leftright'), settings.layout === 'leftright' ? attr.selected('') : []),
+						dom.option('Mobile', attr.value('mobile'), settings.layout === 'mobile' ? attr.selected('') : []),
 						function change() {
 							settingsPut({...settings, layout: layoutElem.value})
 							if (layoutElem.value === 'auto') {
@@ -7245,12 +7366,102 @@ const init = async () => {
 
 	let currentLayout: string = ''
 
+	// Current screen in the mobile layout. History entries hold their screen in their
+	// state, so the back button of the browser navigates between screens.
+	let mobileCurrent: mobileScreen = 'mailboxes'
+
+	const mobileApply = (screen: mobileScreen) => {
+		mobileCurrent = screen
+		document.body.setAttribute('data-mobile-screen', screen)
+		document.body.classList.toggle('mobileMenuOpen', false)
+		mobile.update()
+	}
+
+	mobile.update = () => {
+		if (!mobile.active) {
+			return
+		}
+		const mb = mailboxlistView.activeMailbox()
+		const name = mb ? mb.Name.substring(mb.Name.lastIndexOf('/')+1) : (search.active ? 'Search' : '')
+		dom._kids(mobileBackBtn, '←', ' ' + name) // Separate, the arrow would be marked as switching script.
+	}
+
+	mobile.open = (screen: mobileScreen) => {
+		if (!mobile.active || screen === mobileCurrent) {
+			return
+		}
+		window.history.pushState({mobileScreen: screen, mobilePrev: mobileCurrent}, '', window.location.href)
+		mobileApply(screen)
+	}
+
+	const mobileBack = () => {
+		const parent = mobileCurrent === 'msg' ? 'msglist' : 'mailboxes'
+		// If the previous history entry is the parent, go back in history, so the browser
+		// back button won't later return to the screen we are leaving.
+		if (window.history.state?.mobilePrev === parent) {
+			window.history.back()
+		} else {
+			window.history.replaceState({mobileScreen: parent}, '', window.location.href)
+			mobileApply(parent)
+		}
+	}
+
+	mobile.selectionEmpty = () => {
+		if (mobile.active && mobileCurrent === 'msg') {
+			mobileBack()
+		}
+	}
+
+	window.addEventListener('popstate', (e: PopStateEvent) => {
+		if (mobile.active && e.state?.mobileScreen) {
+			mobileApply(e.state.mobileScreen)
+			setLocationHash() // Entry can have a hash for an earlier mailbox or message.
+		}
+	})
+
+	let mobileEntered = false // Whether layout has been used since loading the page.
+	const mobileEnter = () => {
+		const pageLoad = !mobileEntered
+		mobileEntered = true
+		mobile.active = true
+		document.body.classList.toggle('mobile', true)
+		const screen = window.history.state?.mobileScreen
+		// Keep the screen after reloading the page and changing layouts, but always start
+		// with messages instead of the list of mailboxes, like most mail clients.
+		if (screen && !(pageLoad && screen === 'mailboxes')) {
+			mobileApply(screen)
+			return
+		}
+		window.history.replaceState({mobileScreen: 'mailboxes'}, '', window.location.href)
+		mobileApply('mailboxes')
+		mobile.open('msglist')
+		if (!screen && /,[0-9]+(,compose:[0-9]+)?$/.test(decodeURIComponent(window.location.hash))) {
+			mobile.open('msg')
+		}
+	}
+
+	const mobileLeave = () => {
+		mobile.active = false
+		document.body.classList.toggle('mobile', false)
+		document.body.classList.toggle('mobileMenuOpen', false)
+		document.body.removeAttribute('data-mobile-screen')
+	}
+
 	const selectLayout = (want: string) => {
 		if (want === currentLayout) {
 			return
 		}
 
-		if (want === 'leftright') {
+		if (currentLayout === 'mobile') {
+			mobileLeave()
+		}
+		if (want === 'mobile') {
+			dom._kids(splitElem,
+				dom.div(dom._class('layoutMobilePane'), dom._class('layoutMobileList'), msglistElem),
+				dom.div(dom._class('layoutMobilePane'), dom._class('layoutMobileMsg'), msgElem),
+			)
+			mobileEnter()
+		} else if (want === 'leftright') {
 			let left: HTMLElement, split: HTMLElement, right: HTMLElement
 			dom._kids(splitElem,
 				left=dom.div(
@@ -7320,7 +7531,9 @@ const init = async () => {
 	}
 
 	const autoselectLayout = () => {
-		const want = window.innerWidth <= 2*2560/3 ? 'topbottom' : 'leftright'
+		// Not using innerWidth for mobile: it can be larger on phones when content overflows the screen.
+		const narrow = window.matchMedia('(max-width: 700px)').matches
+		const want = narrow ? 'mobile' : (window.innerWidth <= 2*2560/3 ? 'topbottom' : 'leftright')
 		selectLayout(want)
 	}
 
@@ -7430,6 +7643,11 @@ const init = async () => {
 				window.alert('Error parsing compose mailto URL: '+errmsg(err))
 				window.location.hash = ''
 			}
+			return
+		}
+
+		// Navigating between mobile screens, already handled by popstate. The view stays as is.
+		if (mobile.active && window.history.state?.mobileScreen) {
 			return
 		}
 

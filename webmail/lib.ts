@@ -468,19 +468,19 @@ export const loadMsgheaderView = (msgheaderelem: HTMLTableSectionElement, mi: ap
 				)
 			),
 		),
-		(msgenv.ReplyTo || []).length === 0 ? [] : dom.tr(
+		(msgenv.ReplyTo || []).length === 0 ? [] : dom.tr(dom._class('msgHeaderDetail'),
 			dom.td('Reply-To:', msgHeaderFieldStyle),
 			dom.td(join((msgenv.ReplyTo || []).map(a => formatAddressElem(a)), () => ', ')),
 		),
-		dom.tr(
+		dom.tr(dom._class('msgHeaderDetail'),
 			dom.td('To:', msgHeaderFieldStyle),
 			dom.td(addressList(allAddrs, msgenv.To || [])),
 		),
-		(msgenv.CC || []).length === 0 ? [] : dom.tr(
+		(msgenv.CC || []).length === 0 ? [] : dom.tr(dom._class('msgHeaderDetail'),
 			dom.td('Cc:', msgHeaderFieldStyle),
 			dom.td(addressList(allAddrs, msgenv.CC || [])),
 		),
-		(msgenv.BCC || []).length === 0 ? [] : dom.tr(
+		(msgenv.BCC || []).length === 0 ? [] : dom.tr(dom._class('msgHeaderDetail'),
 			dom.td('Bcc:', msgHeaderFieldStyle),
 			dom.td(addressList(allAddrs, msgenv.BCC || [])),
 		),
@@ -507,7 +507,7 @@ export const loadMsgheaderView = (msgheaderelem: HTMLTableSectionElement, mi: ap
 			),
 		),
 		(mi.MoreHeaders || []).map(t =>
-			dom.tr(
+			dom.tr(dom._class('msgHeaderDetail'),
 				dom.td(t![0]+':', msgHeaderFieldStyle),
 				dom.td(t![1]),
 			),
