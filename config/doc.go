@@ -1145,6 +1145,16 @@ See https://pkg.go.dev/github.com/mjl-/sconf for details.
 							HeadersRegexp:
 								x:
 
+							# Matches if all of these regular expressions match (a substring of) the message
+							# body. Text parts, including text attachments and parts of embedded messages, are
+							# checked after decoding the content-transfer-encoding and charset. HTML is not
+							# parsed. The regular expressions can match in different parts. Matching is
+							# case-sensitive, use (?i) for case-insensitive matching. The regular expressions
+							# match on multiple lines of text, but "." doesn't match a newline by default.
+							# (optional)
+							BodyRegexps:
+								-
+
 							# Influences spam filtering only, this option does not change whether a message
 							# matches this ruleset. Can only be used together with SMTPMailFromRegexp and
 							# VerifiedDomain. SMTPMailFromRegexp must be set to the address used to deliver

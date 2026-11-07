@@ -1668,6 +1668,20 @@ func prepareDynamicConfig(ctx context.Context, log mlog.Log, dynamicPath string,
 				}
 				c.Accounts[accName].Destinations[addrName].Rulesets[i].HeadersRegexpCompiled = hdr
 
+				var body []*regexp.Regexp
+				for _, v := range rs.BodyRegexps {
+					n++
+					if v == "" {
+						addRulesetErrorf("body regexp must not be empty")
+					}
+					r, err := regexp.Compile(v)
+					if err != nil {
+						addRulesetErrorf("invalid rule body regexp %q: %v", v, err)
+					}
+					body = append(body, r)
+				}
+				c.Accounts[accName].Destinations[addrName].Rulesets[i].BodyRegexpsCompiled = body
+
 				if n == 0 {
 					addRulesetErrorf("ruleset must have at least one rule")
 				}
